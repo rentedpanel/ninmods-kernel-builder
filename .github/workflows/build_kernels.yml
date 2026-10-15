@@ -1,0 +1,64 @@
+name: Build NINMODS Kernel Modules
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kernel: "4.14"
+            branch: "android-4.14-stable"
+            defconfig: "defconfig"
+          - kernel: "4.19"
+            branch: "android-4.19-stable"
+            defconfig: "defconfig"
+          - kernel: "5.4"
+            branch: "android-5.4-stable"
+            defconfig: "gki_defconfig"
+          - kernel: "5.10"
+            branch: "android12-5.10"
+            defconfig: "gki_defconfig"
+          - kernel: "5.15"
+            branch: "android13-5.15"
+            defconfig: "gki_defconfig"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu make bc bison flex libssl-dev libelf-dev
+
+      - name: Download Kernel Tree (Depth 1 for ultra-fast download)
+        run: |
+          echo "Cloning Android Common Kernel ${{ matrix.kernel }}..."
+          git clone --depth 1 -b ${{ matrix.branch }} https://android.googlesource.com/kernel/common kernel_tree
+
+      - name: Prepare Kernel Configuration
+        run: |
+          cd kernel_tree
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${{ matrix.defconfig }}
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
+
+      - name: Compile NINMODS Driver (.ko)
+        run: |
+          KDIR="$(pwd)/kernel_tree"
+          cd src
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KDIR="$KDIR" modules
+          mkdir -p ../output
+          cp ninmods_driver.ko ../output/ninmods_driver_${{ matrix.kernel }}.ko
+          echo "Built successfully: ninmods_driver_${{ matrix.kernel }}.ko"
+
+      - name: Upload Kernel Module Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ninmods_driver_${{ matrix.kernel }}
+          path: output/ninmods_driver_${{ matrix.kernel }}.ko
